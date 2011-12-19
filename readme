@@ -1,0 +1,22 @@
+This script was made to easily install Wordpress from scratch.
+It is supposed to be used with Mamp.
+
+Install :
+	- put wp-install wherever you want
+	- be sur to have execution rights on wp-install ( chmod +x wp-install )
+	- add alias for the script in your terminal
+		( alias wp-install='/Path/to/your/folder/wp-install' )
+		( or add /Path/to/your/folder/ to your global PATH )
+
+Usage :
+	cd /Root/of/mamp/server
+	wp-install <Project name> <Password> <Mail>
+
+	- open your browser and go to http://localhost:8888/project-name
+	- Install Wordpress & Enjoy
+
+Licence :
+	This software is distributed under
+	the CreativeCommons Attribution-NonCommercial-ShareAlike 2.0 Generic licence
+	( CC-by-nc-sa http://creativecommons.org/licenses/by-nc-sa/2.0/ )
+	by Baptiste Millou <baptiste@smoothie-creative.com>

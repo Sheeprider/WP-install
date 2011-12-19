@@ -1,0 +1,355 @@
+#! /usr/bin/env python
+# -*- coding:utf-8 -*-
+# This software is distributed under
+# the CreativeCommons Attribution-NonCommercial-ShareAlike 2.0 Generic licence
+# ( CC-by-nc-sa http://creativecommons.org/licenses/by-nc-sa/2.0/ )
+# by Baptiste Millou <baptiste@smoothie-creative.com>
+import os
+import sys
+import urllib
+import urllib2
+import zipfile
+import re
+
+class WpInstall(object):
+
+    def __init__(self, argv):
+        # Define global variables.
+        if(len(argv) == 4):
+            self.PROJECT_NAME = argv[1].replace(' ', '-').strip("'\"")
+            self.PWD = argv[2]
+            self.MAIL = argv[3]
+        else:
+            sys.exit(
+                "Please provide a project name, "
+                + "a password, and an e-mail.\n"
+                + "Usage : $>wp-install <Project name> <Password> <Mail>"
+            )
+        
+        LOCAL_FOLDER = os.getcwd()
+        if(os.path.exists(LOCAL_FOLDER + '/' + self.PROJECT_NAME)):
+            exit("Folder %s already exists, please select another name."
+                % self.PROJECT_NAME)
+
+        # URL and path related to Wordpress and Wordpress installation folder.
+        self.WP = {
+            'URL':'http://fr.wordpress.org/latest-fr_FR.zip',
+            'ZIP_PATH':'%s/latest-fr_FR.zip' % LOCAL_FOLDER,
+            'INSTALL_FOLDER':LOCAL_FOLDER,
+            # Address to Wordpress API to get salt grains.
+            'SALT':'https://api.wordpress.org/secret-key/1.1/salt/',
+            'CONFIG':'%s/%s/wp-config.php'
+                % (LOCAL_FOLDER, self.PROJECT_NAME),
+            'CONFIG_SAMPLE':(
+                '%s/%s/wp-config-sample.php'
+                % (LOCAL_FOLDER, self.PROJECT_NAME)
+            )
+        }
+        # Terminal options to remove errors and verbose from showing up.
+        self.CLI = {
+            'NO_ERR':" 2> /dev/null",
+            'NO_OUT':" > /dev/null"
+        }
+        # 
+        self.MYSQL = {
+            'BIN':'/Applications/MAMP/Library/bin/mysql',
+            'CREATE_DB':(
+                'admin -uroot -proot --host=localhost '
+                + 'reload create %s' % self.PROJECT_NAME
+            ),
+            'EXEC':" -uroot -proot --host=localhost -f -e '",
+            'FLUSH':'FLUSH PRIVILEGES',
+            'CREATE':(
+                'CREATE USER `%s`@`localhost`' % self.PROJECT_NAME
+                + 'IDENTIFIED BY `%s`' % self.PWD
+            ),
+            'GRANT':(
+                'GRANT ALL ON `%s`.* TO `%s`@`localhost`'
+                % (self.PROJECT_NAME, self.PROJECT_NAME)
+            )
+        }
+        # Gitignore path.
+        self.GIT = {
+            'IGNORE':('%s/%s/.git/.gitignore'
+                % (LOCAL_FOLDER, self.PROJECT_NAME))
+        }
+
+        # Start the installation.
+        self.download()
+        self.createDB()
+        self.initGit()
+
+        sys.stdout.write("Install of project %s complete.\n" % PROJECT_NAME)
+        sys.stdout.flush()
+        print 'You can now use you browser to install Wordpress.'
+        print (
+            'Your url is something like : http://localhost:8888/%s/'
+            % PROJECT_NAME
+        )
+
+    def download(self):
+        """
+
+        Get latest wordpress (fr).
+        Save it in local folder.
+
+        """
+        
+        # TODO : Separate the progressBar in its own class.
+        # setup toolbar
+        progressBarWidth = 40
+        progressBarChars = ['☐', '☒']
+        percent = 0
+
+        def progressBar(blocks, blockSize, totalSize):
+            percent = blocks * blockSize / float(totalSize)
+            # update the bar
+            output = ('['
+                + (progressBarChars[1] * int(percent * progressBarWidth))
+                + (progressBarChars[0]
+                    * int(progressBarWidth - percent * progressBarWidth))
+                + ']'
+                + str(int(percent * 100))
+                + '%')
+            sys.stdout.write(output)
+            sys.stdout.flush()
+            sys.stdout.write("\b" * (len(output))) # return to start of line
+        sys.stdout.flush()
+        
+        print (
+            "Download : %s\nTO : %s"
+            % (self.WP['URL'], self.WP['ZIP_PATH'])
+        )
+        archive = urllib.urlretrieve(
+            self.WP['URL'],
+            self.WP['ZIP_PATH'],
+            progressBar
+        )
+        sys.stdout.write("\n")
+
+        if(archive):
+            self.unzip()
+        else:
+            exit("Downloading failed")
+
+    def unzip(self):
+        """
+
+        Unzip archive previously downloaded.
+        Delete archive.
+        Rename wordpress folder to PROJECT_NAME .
+
+        """
+        sys.stdout.write("Extracting/Renaming...")
+        archive = zipfile.ZipFile(self.WP['ZIP_PATH'], 'r')
+        archive.extractall(self.WP['INSTALL_FOLDER'])
+        os.unlink(self.WP['ZIP_PATH'])
+        try:
+            os.system(
+                'mv wordpress %s'
+                % self.PROJECT_NAME
+                + self.CLI['NO_ERR']
+            )
+        except OSError as err:
+            exit(
+                "Renaming failed : %s/%s already exists !"
+                % (self.WP['INSTALL_FOLDER'],self.PROJECT_NAME)
+            )
+        
+        sys.stdout.write("Done\n")
+        self.editWPConfig()
+
+    def editWPConfig(self):
+        # Get salt grains from Wordpress API
+        modifs = urllib2.urlopen(self.WP['SALT']).read().split('\n')
+        for index, salt in enumerate(modifs):
+            if (salt != ''):
+                keyValues = list(salt.split(', '))
+                keyValues = map( str.strip, keyValues)
+                keyValues[1] = salt + '\n'
+                modifs[index] = keyValues
+            else:
+                del(modifs[index])
+        # Lines to be modified in Wordpress config
+        modifs += [
+            [
+                "define('DB_NAME', '",
+                "define('DB_NAME', '%s');\n"
+                % self.PROJECT_NAME
+            ]
+        ]
+        modifs += [
+            [
+                "define('DB_USER', '",
+                "define('DB_USER', '%s');\n"
+                % self.PROJECT_NAME
+            ]
+        ]
+        modifs += [
+            [
+                "define('DB_PASSWORD', '",
+                "define('DB_PASSWORD', '%s');\n"
+                % self.PWD
+            ]
+        ]
+        
+        # modify wordpress config file
+        sys.stdout.write(
+            "Editing wp-config.php"
+            + "with user: %s, password: %s ..."
+            % (self.PROJECT_NAME, self.PWD)
+        )
+        try:
+            configFile = open(self.WP['CONFIG_SAMPLE'], 'r')
+            config = configFile.readlines()
+            for index, line in enumerate(config):
+                for modif in modifs:
+                    if(modif[0] in line):
+                        config[index] = modif[1]
+                
+            configFile.close()
+        except IOError:
+            exit("Can't open %s" % self.WP['CONFIG'])
+
+        # Saving Wordpress config file
+        try:
+            configFile = open(self.WP['CONFIG'], "w")
+            configFile.writelines(config)
+            configFile.close()
+        except IOError:
+            exit("Can't save config.")
+        sys.stdout.write("Done\n")
+
+    def createDB(self):
+        """
+
+        Create table wordpress.
+        Will fail silently if table already exists
+
+        """
+        sys.stdout.write("Creating table and user in MYSQL...")
+        try:
+            result = os.system(
+                self.MYSQL['BIN']
+                + self.MYSQL['CREATE_DB']
+                + self.CLI['NO_ERR']
+            )
+            
+            self.createUser()
+            # if(result == 0):
+            #     createUser()
+            # else:
+            #     exit("\nCan't create database: %s\nError %s returned."
+            #         % (PROJECT_NAME, result))
+        except OSError as err:
+            exit("Can't create DB")
+
+    def createUser(self):
+        """
+
+        Create user wordpress.
+        With ALL powers on table wordpress.
+        Will fail silently if user already exists.
+
+        """
+
+        def mysqlExec(sql='', err=False):
+            sql = (
+                self.MYSQL['BIN']
+                + self.MYSQL['EXEC']
+                + sql.strip(';')
+                + ";'"
+            )
+            if(not err):
+                sql += self.CLI['NO_ERR']
+            return os.system(sql)
+
+        try:
+            create = mysqlExec(self.MYSQL['CREATE'])
+            grant = mysqlExec(self.MYSQL['GRANT'])
+            if((create + grant) == 0):
+                sys.stdout.write("Done\n")
+            else:
+                sys.stdout.write("\n")
+        except OSError as err:
+            exit("Can't create user")
+
+    def initGit(self):
+        """
+
+        Init git.
+        Add .DS_Store and download folder to .gitignore .
+
+        """
+        # Initializing Git
+        sys.stdout.write("Initialize Git repository in %s ..."
+            % (
+                self.WP['INSTALL_FOLDER']
+                + '/'
+                + self.PROJECT_NAME
+                + '/'
+            )
+        )
+        try:
+            result = os.system('cd "%s/%s/" && git init . %s'
+                % (
+                    self.WP['INSTALL_FOLDER'],
+                    self.PROJECT_NAME,
+                    self.CLI['NO_OUT']
+                )
+            )
+            if(result != 0):
+                exit("Can't initialize Git repository")
+        except OSError as err:
+            exit("Can't initialize Git repository")
+        
+        # Configuration of ignore list for git
+        ignore = list(['wp-content/uploads/*\n','.DS_Store\n'])
+        try:
+            gitignore = open(self.GIT['IGNORE'], "w")
+            gitignore.writelines(ignore)
+            gitignore.close()
+        except IOError:
+            exit("Can't modify .gitignore")
+        sys.stdout.write("Done\n")
+
+
+    # Install WP
+    # def installWP():
+        # """
+
+        # Install wordpress.
+        # Not used, because this way the wordpress url will not be correct.
+
+        # """
+        # data = dict(
+        #     weblog_title = PROJECT_NAME,
+        #     user_name = PROJECT_NAME,
+        #     admin_email = MAIL,
+        #     admin_password = PROJECT_NAME,
+        #     admin_password2 = PROJECT_NAME,
+        #     blog_public = '1', # Comment to not add to search engine
+        #     # Submit = 'Installer WordPress', # Not used by install script
+        #     project_name = PROJECT_NAME,
+        #     path_to_wordpress = LOCAL_URL + '/' + PROJECT_NAME)
+        # data = urllib.urlencode(data)
+
+        # sys.stdout.write("Install Wordpress with user: %s, pw: %s..."
+        #     % (PROJECT_NAME, PROJECT_NAME))
+
+        # try:
+        #     result = os.system(PHP + ' ' + INSTALL + ' "%s"' % data)
+        #     if(result != 0):
+        #         exit("Can't install Wordpress.")
+        # except OSError as err:
+        #     exit('\n' + err.read())
+        # sys.stdout.write("Done\n")
+
+    # installWP()
+
+    # sys.stdout.write("Install of project %s complete.\n" % PROJECT_NAME)
+    # sys.stdout.flush()
+    # print 'You can now use you browser to install Wordpress.'
+    # print 'Your url is something like : http://localhost:8888/%s/' % PROJECT_NAME
+
+WpInstall(sys.argv)
