@@ -54,14 +54,13 @@ class WpInstall(object):
         self.MYSQL = {
             'BIN':'/Applications/MAMP/Library/bin/mysql',
             'CREATE_DB':(
-                'admin -uroot -proot --host=localhost '
-                + 'reload create %s' % self.PROJECT_NAME
+                'CREATE DATABASE IF NOT EXISTS `%s`' % self.PROJECT_NAME
             ),
             'EXEC':" -uroot -proot --host=localhost -f -e '",
             'FLUSH':'FLUSH PRIVILEGES',
             'CREATE':(
-                'CREATE USER `%s`@`localhost`' % self.PROJECT_NAME
-                + 'IDENTIFIED BY `%s`' % self.PWD
+                'CREATE USER `%s`@`localhost` ' % self.PROJECT_NAME
+                + 'IDENTIFIED BY "%s"' % self.PWD
             ),
             'GRANT':(
                 'GRANT ALL ON `%s`.* TO `%s`@`localhost`'
@@ -79,12 +78,12 @@ class WpInstall(object):
         self.createDB()
         self.initGit()
 
-        sys.stdout.write("Install of project %s complete.\n" % PROJECT_NAME)
+        sys.stdout.write("Install of project %s complete.\n" % self.PROJECT_NAME)
         sys.stdout.flush()
         print 'You can now use you browser to install Wordpress.'
         print (
             'Your url is something like : http://localhost:8888/%s/'
-            % PROJECT_NAME
+            % self.PROJECT_NAME
         )
 
     def download(self):
@@ -196,7 +195,7 @@ class WpInstall(object):
         # modify wordpress config file
         sys.stdout.write(
             "Editing wp-config.php"
-            + "with user: %s, password: %s ..."
+            + " with user: %s, password: %s ..."
             % (self.PROJECT_NAME, self.PWD)
         )
         try:
@@ -231,16 +230,12 @@ class WpInstall(object):
         try:
             result = os.system(
                 self.MYSQL['BIN']
-                + self.MYSQL['CREATE_DB']
-                + self.CLI['NO_ERR']
+                + self.MYSQL['EXEC']
+                + self.MYSQL['CREATE_DB'].strip(';')
+                + ";'"
             )
             
             self.createUser()
-            # if(result == 0):
-            #     createUser()
-            # else:
-            #     exit("\nCan't create database: %s\nError %s returned."
-            #         % (PROJECT_NAME, result))
         except OSError as err:
             exit("Can't create DB")
 
@@ -253,14 +248,14 @@ class WpInstall(object):
 
         """
 
-        def mysqlExec(sql='', err=False):
+        def mysqlExec(sql='', noErr=True):
             sql = (
                 self.MYSQL['BIN']
                 + self.MYSQL['EXEC']
                 + sql.strip(';')
                 + ";'"
             )
-            if(not err):
+            if(noErr):
                 sql += self.CLI['NO_ERR']
             return os.system(sql)
 
