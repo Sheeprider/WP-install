@@ -104,9 +104,9 @@ class WpInstall(object):
             percent = blocks * blockSize / float(totalSize)
             # update the bar
             output = ('['
-                + (progressBarChars[1] * int(percent * progressBarWidth))
+                + (progressBarChars[1] * int(round(percent * progressBarWidth)))
                 + (progressBarChars[0]
-                    * int(progressBarWidth - percent * progressBarWidth))
+                    * int(round(progressBarWidth - percent * progressBarWidth)))
                 + ']'
                 + str(int(percent * 100))
                 + '%')
